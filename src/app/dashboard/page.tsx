@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import type { Report } from "@/lib/types";
 import { TEAM_LABEL } from "@/lib/teamColors";
-import SeedButton from "./SeedButton";
+import GenerateReportButton from "./GenerateReportButton";
 import PeriodPicker from "./PeriodPicker";
 import StatTile from "./components/StatTile";
 import SentimentSection from "./components/SentimentSection";
@@ -26,6 +27,16 @@ async function getLatestReport(): Promise<Report | null> {
   return data;
 }
 
+async function getTicketCount(): Promise<number> {
+  const client = supabaseAdmin ?? supabase;
+  const { count, error } = await client.from("tickets").select("id", { count: "exact", head: true });
+  if (error) {
+    console.error("fetch ticket count error", error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 // Maps a stored report's period_start/period_end back to one of the
 // PeriodPicker presets, so the picker highlights what's currently shown.
 function derivePeriodKey(report: Report): string {
@@ -37,7 +48,7 @@ function derivePeriodKey(report: Report): string {
 }
 
 export default async function Dashboard() {
-  const report = await getLatestReport();
+  const [report, ticketCount] = await Promise.all([getLatestReport(), getTicketCount()]);
 
   return (
     <main className="flex-1 px-6 py-12">
@@ -52,25 +63,37 @@ export default async function Dashboard() {
           {report && <PeriodPicker current={derivePeriodKey(report)} />}
         </div>
 
-        {!report ? (
+        {ticketCount === 0 ? (
           <div className="flex flex-col items-start gap-3 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-6 text-sm">
             <p className="text-[var(--text-secondary)]">
-              No reports yet. The cron reporting workflow writes here — or seed sample
-              tickets and generate one now to preview the dashboard.
+              No tickets yet. Reports build up automatically as tickets come in —{" "}
+              <Link href="/" className="underline hover:text-[var(--text-primary)]">
+                submit one
+              </Link>{" "}
+              to get started.
             </p>
-            <SeedButton />
+          </div>
+        ) : !report ? (
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-6 text-sm">
+            <p className="text-[var(--text-secondary)]">
+              {ticketCount} ticket{ticketCount === 1 ? "" : "s"} so far, no report yet — generate
+              one to see sentiment trends and recurring issues.
+            </p>
+            <GenerateReportButton />
           </div>
         ) : (
-          <ReportView report={report} />
+          <ReportView report={report} ticketCount={ticketCount} />
         )}
       </div>
     </main>
   );
 }
 
-function ReportView({ report }: { report: Report }) {
+function ReportView({ report, ticketCount }: { report: Report; ticketCount: number }) {
   const summary = report.sentiment_summary;
   const clusters = report.root_cause_clusters ?? [];
+  const periodKey = derivePeriodKey(report);
+  const newSinceReport = periodKey === "all" ? ticketCount - (summary?.total_tickets ?? 0) : 0;
 
   if (!summary) {
     return (
@@ -86,10 +109,18 @@ function ReportView({ report }: { report: Report }) {
 
   return (
     <div className="flex flex-col gap-8">
-      <p className="text-xs text-[var(--text-muted)]">
-        {report.period_start ? report.period_start.slice(0, 10) : "All time"}
-        {report.period_start && ` → ${report.period_end?.slice(0, 10)}`}
-      </p>
+      <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+        <span>
+          {report.period_start ? report.period_start.slice(0, 10) : "All time"}
+          {report.period_start && ` → ${report.period_end?.slice(0, 10)}`}
+        </span>
+        {newSinceReport > 0 && (
+          <span>
+            {newSinceReport} new ticket{newSinceReport === 1 ? "" : "s"} since this report —{" "}
+            <GenerateReportButton label="refresh" compact />
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatTile label="Total tickets" value={String(summary.total_tickets)} />
