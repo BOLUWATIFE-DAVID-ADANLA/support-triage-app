@@ -1,15 +1,14 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { withRetry } from "./withRetry";
 import type { ClassificationResult, Sentiment } from "./types";
 
-const TEAM_LABELS = [
+export const TEAM_LABELS = [
   "engineering",
   "billing",
   "account",
   "product",
   "support",
 ] as const;
-
-const CLASSIFY_TOOL_NAME = "record_classification";
 
 const SYSTEM_PROMPT = `You are the triage classifier for a customer support pipeline. Given a single support ticket's content, return:
 
@@ -22,51 +21,44 @@ Actionability gate — apply this rule strictly: tickets that are fundamentally 
 export async function classifyTicket(
   content: string,
 ): Promise<ClassificationResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is not set");
+    throw new Error("GEMINI_API_KEY is not set");
   }
 
-  const client = new Anthropic({ apiKey });
-
-  const message = await client.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content }],
-    tools: [
-      {
-        name: CLASSIFY_TOOL_NAME,
-        description: "Record the classification result for this ticket.",
-        input_schema: {
-          type: "object",
-          properties: {
-            sentiment: {
-              type: "string",
-              enum: ["positive", "neutral", "negative"],
-            },
-            team_labels: {
-              type: "array",
-              items: { type: "string", enum: TEAM_LABELS as unknown as string[] },
-              minItems: 1,
-            },
-            actionable: { type: "boolean" },
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: "gemini-flash-latest",
+    systemInstruction: SYSTEM_PROMPT,
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          sentiment: {
+            type: SchemaType.STRING,
+            format: "enum",
+            enum: ["positive", "neutral", "negative"],
           },
-          required: ["sentiment", "team_labels", "actionable"],
+          team_labels: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.STRING,
+              format: "enum",
+              enum: [...TEAM_LABELS],
+            },
+          },
+          actionable: { type: SchemaType.BOOLEAN },
         },
+        required: ["sentiment", "team_labels", "actionable"],
       },
-    ],
-    tool_choice: { type: "tool", name: CLASSIFY_TOOL_NAME },
+    },
   });
 
-  const toolUse = message.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+  const result = await withRetry(() =>
+    model.generateContent(content, { timeout: 20_000 }),
   );
-  if (!toolUse) {
-    throw new Error("Classification model did not return a tool call");
-  }
-
-  const result = toolUse.input as {
+  const parsed = JSON.parse(result.response.text()) as {
     sentiment: Sentiment;
     team_labels: string[];
     actionable: boolean;
@@ -74,12 +66,12 @@ export async function classifyTicket(
 
   // Belt-and-suspenders enforcement of the actionability gate in code,
   // in case the model slips despite the prompt instruction.
-  const isClaimsOrBilling = result.team_labels.some(
+  const isClaimsOrBilling = parsed.team_labels.some(
     (label) => label === "billing" || label === "account",
   );
-  if (isClaimsOrBilling && !result.team_labels.includes("engineering")) {
-    result.actionable = false;
+  if (isClaimsOrBilling && !parsed.team_labels.includes("engineering")) {
+    parsed.actionable = false;
   }
 
-  return result;
+  return parsed;
 }
