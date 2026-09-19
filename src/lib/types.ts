@@ -2,6 +2,8 @@ export type TicketStatus = "pending" | "classified" | "routed";
 
 export type Sentiment = "positive" | "neutral" | "negative";
 
+export type Team = "engineering" | "billing" | "account" | "product" | "support";
+
 export interface Ticket {
   id: string;
   content: string;
@@ -19,11 +21,26 @@ export interface ClassificationResult {
   actionable: boolean;
 }
 
+export interface SentimentSummary {
+  total_tickets: number;
+  breakdown: { positive: number; neutral: number; negative: number };
+  team_counts: Partial<Record<Team, number>>;
+  top_team: { label: Team; count: number } | null;
+  trend: { date: string; positive: number; neutral: number; negative: number }[];
+}
+
+export interface RootCauseCluster {
+  label: string;
+  ticket_count: number;
+  sentiment: Sentiment;
+  team_labels: Team[];
+}
+
 export interface Report {
   id: string;
   period_start: string | null;
   period_end: string | null;
-  sentiment_summary: Record<string, unknown> | null;
-  root_cause_clusters: Record<string, unknown> | null;
+  sentiment_summary: SentimentSummary | null;
+  root_cause_clusters: RootCauseCluster[] | null;
   created_at: string;
 }

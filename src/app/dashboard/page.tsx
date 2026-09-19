@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { supabase, supabaseAdmin } from "@/lib/supabase";
 import type { Report } from "@/lib/types";
-import SeedButton from "./SeedButton";
+import { TEAM_LABEL } from "@/lib/teamColors";
+import GenerateReportButton from "./GenerateReportButton";
+import PeriodPicker from "./PeriodPicker";
+import StatTile from "./components/StatTile";
+import SentimentSection from "./components/SentimentSection";
+import TeamBreakdown from "./components/TeamBreakdown";
+import RecurringIssues from "./components/RecurringIssues";
 
 export const dynamic = "force-dynamic";
 
@@ -21,108 +27,135 @@ async function getLatestReport(): Promise<Report | null> {
   return data;
 }
 
+async function getTicketCount(): Promise<number> {
+  const client = supabaseAdmin ?? supabase;
+  const { count, error } = await client.from("tickets").select("id", { count: "exact", head: true });
+  if (error) {
+    console.error("fetch ticket count error", error);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+// Maps a stored report's period_start/period_end back to one of the
+// PeriodPicker presets, so the picker highlights what's currently shown.
+function derivePeriodKey(report: Report): string {
+  if (!report.period_start) return "all";
+  const start = new Date(report.period_start).getTime();
+  const end = new Date(report.period_end ?? Date.now()).getTime();
+  const days = Math.round((end - start) / (24 * 60 * 60 * 1000));
+  return [7, 30, 90].includes(days) ? String(days) : "all";
+}
+
 export default async function Dashboard() {
-  const report = await getLatestReport();
+  const [report, ticketCount] = await Promise.all([getLatestReport(), getTicketCount()]);
 
   return (
-    <main className="flex-1 flex flex-col items-center gap-8 px-6 py-16">
-      <div className="w-full max-w-3xl flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Support ticket report</h1>
-        <Link href="/" className="text-sm underline opacity-70">
-          Submit a ticket
-        </Link>
-      </div>
-
-      {!report ? (
-        <div className="w-full max-w-3xl rounded-lg border border-black/10 dark:border-white/15 p-6 text-sm flex flex-col gap-3">
-          <p className="opacity-70">
-            No reports yet. The cron reporting workflow writes here — or seed
-            fake data to preview the dashboard.
-          </p>
-          <SeedButton />
+    <main className="flex-1 px-6 py-12">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Support ticket report</h1>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Sentiment trends and recurring issues across support tickets.
+            </p>
+          </div>
+          {report && <PeriodPicker current={derivePeriodKey(report)} />}
         </div>
-      ) : (
-        <ReportView report={report} />
-      )}
+
+        {ticketCount === 0 ? (
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-6 text-sm">
+            <p className="text-[var(--text-secondary)]">
+              No tickets yet. Reports build up automatically as tickets come in —{" "}
+              <Link href="/" className="underline hover:text-[var(--text-primary)]">
+                submit one
+              </Link>{" "}
+              to get started.
+            </p>
+          </div>
+        ) : !report ? (
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-6 text-sm">
+            <p className="text-[var(--text-secondary)]">
+              {ticketCount} ticket{ticketCount === 1 ? "" : "s"} so far, no report yet — generate
+              one to see sentiment trends and recurring issues.
+            </p>
+            <GenerateReportButton />
+          </div>
+        ) : (
+          <ReportView report={report} ticketCount={ticketCount} />
+        )}
+      </div>
     </main>
   );
 }
 
-function ReportView({ report }: { report: Report }) {
-  const summary = report.sentiment_summary as {
-    total_tickets?: number;
-    breakdown?: { positive: number; neutral: number; negative: number };
-    trend?: { date: string; positive: number; neutral: number; negative: number }[];
-  } | null;
+function ReportView({ report, ticketCount }: { report: Report; ticketCount: number }) {
+  const summary = report.sentiment_summary;
+  const clusters = report.root_cause_clusters ?? [];
+  const periodKey = derivePeriodKey(report);
+  const newSinceReport = periodKey === "all" ? ticketCount - (summary?.total_tickets ?? 0) : 0;
 
-  const clusters = (report.root_cause_clusters ?? []) as {
-    label: string;
-    ticket_count: number;
-    sentiment: string;
-    team_labels: string[];
-  }[];
+  if (!summary) {
+    return (
+      <p className="text-sm text-[var(--text-muted)]">
+        Report has no sentiment data yet.
+      </p>
+    );
+  }
 
-  const breakdown = summary?.breakdown;
-  const total = summary?.total_tickets ?? 0;
+  const actionable = clusters
+    .filter((c) => c.team_labels.includes("engineering"))
+    .reduce((sum, c) => sum + c.ticket_count, 0);
 
   return (
-    <div className="w-full max-w-3xl flex flex-col gap-8">
-      <section className="rounded-lg border border-black/10 dark:border-white/15 p-6">
-        <p className="text-sm opacity-60 mb-4">
-          {report.period_start?.slice(0, 10)} → {report.period_end?.slice(0, 10)} ·{" "}
-          {total} tickets
-        </p>
-
-        {breakdown && (
-          <div className="flex flex-col gap-2">
-            <SentimentBar label="Positive" count={breakdown.positive} total={total} color="bg-green-500" />
-            <SentimentBar label="Neutral" count={breakdown.neutral} total={total} color="bg-slate-400" />
-            <SentimentBar label="Negative" count={breakdown.negative} total={total} color="bg-red-500" />
-          </div>
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+        <span>
+          {report.period_start ? report.period_start.slice(0, 10) : "All time"}
+          {report.period_start && ` → ${report.period_end?.slice(0, 10)}`}
+        </span>
+        {newSinceReport > 0 && (
+          <span>
+            {newSinceReport} new ticket{newSinceReport === 1 ? "" : "s"} since this report —{" "}
+            <GenerateReportButton label="refresh" compact />
+          </span>
         )}
-      </section>
-
-      <section className="rounded-lg border border-black/10 dark:border-white/15 p-6">
-        <h2 className="text-sm font-medium mb-4">Recurring issues</h2>
-        <ul className="flex flex-col gap-3">
-          {clusters.map((c) => (
-            <li key={c.label} className="flex items-center justify-between text-sm">
-              <div>
-                <p>{c.label}</p>
-                <p className="opacity-60 text-xs">
-                  {c.team_labels.join(", ")} · {c.sentiment}
-                </p>
-              </div>
-              <span className="text-xs rounded-full bg-black/5 dark:bg-white/10 px-2 py-1">
-                {c.ticket_count} tickets
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
-  );
-}
-
-function SentimentBar({
-  label,
-  count,
-  total,
-  color,
-}: {
-  label: string;
-  count: number;
-  total: number;
-  color: string;
-}) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-16 shrink-0 opacity-70">{label}</span>
-      <div className="flex-1 h-2 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden">
-        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-10 shrink-0 text-right opacity-70">{pct}%</span>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatTile label="Total tickets" value={String(summary.total_tickets)} />
+        <StatTile
+          label="Top team"
+          value={summary.top_team ? TEAM_LABEL[summary.top_team.label] : "—"}
+          sublabel={summary.top_team ? `${summary.top_team.count} tickets` : undefined}
+        />
+        <StatTile
+          label="Negative sentiment"
+          value={`${
+            summary.total_tickets > 0
+              ? Math.round((summary.breakdown.negative / summary.total_tickets) * 100)
+              : 0
+          }%`}
+          sublabel={`${summary.breakdown.negative} tickets`}
+          accent="var(--status-critical)"
+        />
+      </div>
+
+      <SentimentSection summary={summary} />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <TeamBreakdown
+          teamCounts={summary.team_counts}
+          topTeam={summary.top_team?.label ?? null}
+        />
+        <RecurringIssues clusters={clusters} />
+      </div>
+
+      {actionable > 0 && (
+        <p className="text-xs text-[var(--text-muted)]">
+          {actionable} tickets across recurring issues are flagged actionable for engineering.
+        </p>
+      )}
     </div>
   );
 }

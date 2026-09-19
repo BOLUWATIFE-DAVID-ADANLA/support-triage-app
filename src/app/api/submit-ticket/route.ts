@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { classifyTicket } from "@/lib/classify";
+import { withSupabaseRetry } from "@/lib/withSupabaseRetry";
 
 // Demo-mode route: inserts the ticket (same as the production path, which
 // picks it up via the Supabase → n8n webhook) AND classifies it synchronously
@@ -16,6 +17,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const admin = supabaseAdmin;
+
   const body = await req.json().catch(() => null);
   const content = body?.content;
 
@@ -26,11 +29,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: ticket, error: insertError } = await supabaseAdmin
-    .from("tickets")
-    .insert({ content, status: "pending" })
-    .select()
-    .single();
+  const { data: ticket, error: insertError } = await withSupabaseRetry(() =>
+    admin.from("tickets").insert({ content, status: "pending" }).select().single(),
+  );
 
   if (insertError || !ticket) {
     console.error("insert ticket error", insertError);
@@ -43,15 +44,17 @@ export async function POST(req: NextRequest) {
   try {
     const classification = await classifyTicket(content);
 
-    const { error: updateError } = await supabaseAdmin
-      .from("tickets")
-      .update({
-        status: "classified",
-        sentiment: classification.sentiment,
-        team_labels: classification.team_labels,
-        actionable: classification.actionable,
-      })
-      .eq("id", ticket.id);
+    const { error: updateError } = await withSupabaseRetry(() =>
+      admin
+        .from("tickets")
+        .update({
+          status: "classified",
+          sentiment: classification.sentiment,
+          team_labels: classification.team_labels,
+          actionable: classification.actionable,
+        })
+        .eq("id", ticket.id),
+    );
 
     if (updateError) {
       console.error("update ticket error", updateError);

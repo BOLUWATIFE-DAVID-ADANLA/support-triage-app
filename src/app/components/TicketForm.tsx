@@ -7,6 +7,12 @@ type SubmitResult =
   | { kind: "classified"; data: ClassificationResult & { id: string } }
   | { kind: "error"; message: string };
 
+const SENTIMENT_COLOR: Record<string, string> = {
+  positive: "var(--status-good)",
+  negative: "var(--status-critical)",
+  neutral: "var(--text-muted)",
+};
+
 export default function TicketForm() {
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -48,33 +54,41 @@ export default function TicketForm() {
           onChange={(e) => setContent(e.target.value)}
           placeholder="Describe the issue the customer is reporting..."
           rows={5}
-          className="w-full rounded-lg border border-black/10 dark:border-white/15 bg-transparent p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-3 text-sm outline-none transition focus:ring-2 focus:ring-[var(--cat-engineering)]"
         />
         <button
           type="submit"
           disabled={submitting || !content.trim()}
-          className="self-start rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="self-start rounded-lg bg-[var(--cat-engineering)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? "Classifying..." : "Submit ticket"}
         </button>
       </form>
 
       {result?.kind === "classified" && (
-        <div className="mt-4 rounded-lg border border-black/10 dark:border-white/15 p-4 text-sm">
-          <p className="font-medium mb-2">Classified</p>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-            <dt className="opacity-60">Sentiment</dt>
-            <dd>{result.data.sentiment}</dd>
-            <dt className="opacity-60">Teams</dt>
+        <div className="mt-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-4 text-sm">
+          <p className="mb-3 font-medium">Classified</p>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+            <dt className="text-[var(--text-muted)]">Sentiment</dt>
+            <dd className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: SENTIMENT_COLOR[result.data.sentiment] }}
+              />
+              {result.data.sentiment}
+            </dd>
+            <dt className="text-[var(--text-muted)]">Teams</dt>
             <dd>{result.data.team_labels.join(", ")}</dd>
-            <dt className="opacity-60">Actionable</dt>
+            <dt className="text-[var(--text-muted)]">Actionable</dt>
             <dd>{result.data.actionable ? "Yes" : "No"}</dd>
           </dl>
         </div>
       )}
 
       {result?.kind === "error" && (
-        <p className="mt-4 text-sm text-red-600">{result.message}</p>
+        <p className="mt-4 text-sm" style={{ color: "var(--status-critical)" }}>
+          {result.message}
+        </p>
       )}
     </div>
   );
