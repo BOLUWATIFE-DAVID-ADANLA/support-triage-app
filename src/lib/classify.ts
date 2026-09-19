@@ -55,8 +55,13 @@ export async function classifyTicket(
     },
   });
 
-  const result = await withRetry(() =>
-    model.generateContent(content, { timeout: 20_000 }),
+  // This is the interactive demo-feedback path — the ticket is already saved
+  // by the time this runs, so fail fast rather than hang the request for a
+  // long time when Gemini is flaky. Real classification/routing happens at
+  // dispatch (n8n) regardless of whether this inline call succeeds.
+  const result = await withRetry(
+    () => model.generateContent(content, { timeout: 8_000 }),
+    { attempts: 2, baseDelayMs: 500 },
   );
   const parsed = JSON.parse(result.response.text()) as {
     sentiment: Sentiment;

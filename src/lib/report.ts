@@ -2,6 +2,7 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { supabaseAdmin } from "./supabase";
 import { TEAM_LABELS } from "./classify";
 import { withRetry } from "./withRetry";
+import { withSupabaseRetry } from "./withSupabaseRetry";
 import type { Report, RootCauseCluster, Sentiment, Team, Ticket } from "./types";
 
 export type ReportPeriod = number | "all";
@@ -15,13 +16,19 @@ export async function generateReport(period: ReportPeriod = "all"): Promise<Repo
   if (!supabaseAdmin) {
     throw new Error("Supabase is not configured (SUPABASE_SERVICE_ROLE_KEY missing)");
   }
+  const admin = supabaseAdmin;
 
   const periodEnd = new Date();
   const periodStart = period === "all" ? null : new Date(periodEnd.getTime() - period * 24 * 60 * 60 * 1000);
 
-  let query = supabaseAdmin.from("tickets").select("*").lte("created_at", periodEnd.toISOString());
-  if (periodStart) query = query.gte("created_at", periodStart.toISOString());
-  const { data: tickets, error } = await query;
+  const { data: tickets, error } = await withSupabaseRetry(() => {
+    let query = admin
+      .from("tickets")
+      .select("*")
+      .lte("created_at", periodEnd.toISOString());
+    if (periodStart) query = query.gte("created_at", periodStart.toISOString());
+    return query;
+  });
 
   if (error) throw error;
 
@@ -62,18 +69,29 @@ export async function generateReport(period: ReportPeriod = "all"): Promise<Repo
     trend,
   };
 
-  const root_cause_clusters = await clusterRootCauses(classified);
+  // Sentiment/team stats above come entirely from Supabase and should always
+  // save on a period switch. Clustering needs Gemini and can be flaky/quota-
+  // limited — don't let that block the real, already-computed numbers from
+  // being written.
+  let root_cause_clusters: RootCauseCluster[] = [];
+  try {
+    root_cause_clusters = await clusterRootCauses(classified);
+  } catch (err) {
+    console.error("cluster root causes error (report will still save without them)", err);
+  }
 
-  const { data: report, error: insertError } = await supabaseAdmin
-    .from("reports")
-    .insert({
-      period_start: periodStart ? periodStart.toISOString() : null,
-      period_end: periodEnd.toISOString(),
-      sentiment_summary,
-      root_cause_clusters,
-    })
-    .select()
-    .single();
+  const { data: report, error: insertError } = await withSupabaseRetry(() =>
+    admin
+      .from("reports")
+      .insert({
+        period_start: periodStart ? periodStart.toISOString() : null,
+        period_end: periodEnd.toISOString(),
+        sentiment_summary,
+        root_cause_clusters,
+      })
+      .select()
+      .single(),
+  );
 
   if (insertError) throw insertError;
   return report;
