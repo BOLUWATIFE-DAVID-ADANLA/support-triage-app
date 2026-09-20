@@ -6,7 +6,7 @@ An AI-assisted triage layer for customer support. Customers submit free-text tic
 
 This project mimics a real-world application of sentiment analysis and the insights it gives upper management and the leads of engineering and product. The front end is a small web app where users submit tickets. Each ticket's text is classified for sentiment, and the department that owns it is worked out from the customer's complaint.
 
-The other half of the workflow isn't visible in this app: it's triggered whenever a ticket is submitted. Once the sentiment is analysed, it creates tasks in the workbenches of the teams that were paged. The dashboard is the management-facing view over the same data.
+The other half of the workflow isn't visible in this app: it's an [n8n](https://n8n.io) workflow triggered whenever a ticket is submitted. The web app's part is deliberately simple: it just saves the ticket, which is the trigger. Once the sentiment is analysed, the workflow creates tasks in the workbenches of the teams that were paged. The dashboard is the management-facing view over the same data.
 
 Support inboxes are noisy. Every ticket needs someone to read it, decide how upset the customer is, figure out which team owns it, and work out whether it's a real bug or a billing question wearing a bug costume. That manual sorting is slow, inconsistent, and hides the bigger picture: no one sees that twelve "different" tickets are all the same underlying outage.
 
@@ -43,7 +43,7 @@ Options for the downstream step, roughly in order of ambition:
 2. **Email the heads of the affected departments.** Likely the better default for now: it puts the ticket in front of a person with the authority to assign it, and sidesteps needing an assignment rule up front.
 3. **Automatic assignment to an individual** (rotation, on-call, load-based). Only worth building once the first two show what a good rule looks like.
 
-None of these are implemented in this repo. They belong to the trigger-on-submit workflow described above.
+None of these are implemented in this repo. They belong to the n8n workflow that a ticket submission triggers.
 
 ## Tech stack
 
