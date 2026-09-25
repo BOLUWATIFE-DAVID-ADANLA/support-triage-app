@@ -3,6 +3,7 @@ import { supabaseAdmin } from "./supabase";
 import { TEAM_LABELS } from "./classify";
 import { withRetry } from "./withRetry";
 import { withSupabaseRetry } from "./withSupabaseRetry";
+import { MAX_CLUSTER_TICKETS } from "./constants";
 import type { Report, RootCauseCluster, Sentiment, Team, Ticket } from "./types";
 
 export type ReportPeriod = number | "all";
@@ -73,9 +74,21 @@ export async function generateReport(period: ReportPeriod = "all"): Promise<Repo
   // save on a period switch. Clustering needs Gemini and can be flaky/quota-
   // limited — don't let that block the real, already-computed numbers from
   // being written.
+  //
+  // Clustering sends every ticket's full content to Gemini in one call, so
+  // it's capped to the most recent MAX_CLUSTER_TICKETS — otherwise it grows
+  // unbounded with ticket volume (especially for period "all") and eventually
+  // exceeds the model's context/output budget. The stats above still cover
+  // every ticket in the period regardless of this cap.
   let root_cause_clusters: RootCauseCluster[] = [];
   try {
-    root_cause_clusters = await clusterRootCauses(classified);
+    const forClustering =
+      classified.length > MAX_CLUSTER_TICKETS
+        ? [...classified]
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .slice(0, MAX_CLUSTER_TICKETS)
+        : classified;
+    root_cause_clusters = await clusterRootCauses(forClustering);
   } catch (err) {
     console.error("cluster root causes error (report will still save without them)", err);
   }

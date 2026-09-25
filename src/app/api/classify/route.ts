@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { classifyTicket } from "@/lib/classify";
+import { MAX_TICKET_CONTENT_LENGTH } from "@/lib/constants";
 
 // Single source of truth for classification. Called synchronously by the
 // demo-mode submit route, and over HTTP by the n8n routing workflow so the
@@ -11,6 +12,13 @@ export async function POST(req: NextRequest) {
   if (typeof content !== "string" || content.trim().length === 0) {
     return NextResponse.json(
       { error: "content (string) is required" },
+      { status: 400 },
+    );
+  }
+
+  if (content.length > MAX_TICKET_CONTENT_LENGTH) {
+    return NextResponse.json(
+      { error: `content must be ${MAX_TICKET_CONTENT_LENGTH} characters or fewer` },
       { status: 400 },
     );
   }

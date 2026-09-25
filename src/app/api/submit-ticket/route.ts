@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { classifyTicket } from "@/lib/classify";
 import { withSupabaseRetry } from "@/lib/withSupabaseRetry";
+import { MAX_TICKET_CONTENT_LENGTH } from "@/lib/constants";
 
 // Demo-mode route: inserts the ticket (same as the production path, which
 // picks it up via the Supabase → n8n webhook) AND classifies it synchronously
@@ -25,6 +26,13 @@ export async function POST(req: NextRequest) {
   if (typeof content !== "string" || content.trim().length === 0) {
     return NextResponse.json(
       { error: "content (string) is required" },
+      { status: 400 },
+    );
+  }
+
+  if (content.length > MAX_TICKET_CONTENT_LENGTH) {
+    return NextResponse.json(
+      { error: `content must be ${MAX_TICKET_CONTENT_LENGTH} characters or fewer` },
       { status: 400 },
     );
   }

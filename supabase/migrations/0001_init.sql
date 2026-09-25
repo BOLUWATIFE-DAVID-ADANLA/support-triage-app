@@ -1,5 +1,5 @@
 -- Support Ticket Intelligence Pipeline — initial schema
--- POC scope: no RLS lockdown yet (see README "Known limitations").
+-- RLS is enabled in 0002_enable_rls.sql.
 
 create table if not exists tickets (
   id uuid primary key default gen_random_uuid(),

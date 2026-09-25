@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ClassificationResult } from "@/lib/types";
+import { MAX_TICKET_CONTENT_LENGTH } from "@/lib/constants";
 
 type SubmitResult =
   | { kind: "classified"; data: ClassificationResult & { id: string } }
@@ -54,15 +55,21 @@ export default function TicketForm() {
           onChange={(e) => setContent(e.target.value)}
           placeholder="Describe the issue the customer is reporting..."
           rows={5}
+          maxLength={MAX_TICKET_CONTENT_LENGTH}
           className="w-full rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-1)] p-3 text-sm outline-none transition focus:ring-2 focus:ring-[var(--cat-engineering)]"
         />
-        <button
-          type="submit"
-          disabled={submitting || !content.trim()}
-          className="self-start rounded-lg bg-[var(--cat-engineering)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
-        >
-          {submitting ? "Classifying..." : "Submit ticket"}
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            type="submit"
+            disabled={submitting || !content.trim()}
+            className="self-start rounded-lg bg-[var(--cat-engineering)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? "Classifying..." : "Submit ticket"}
+          </button>
+          <span className="text-xs text-[var(--text-muted)]">
+            {content.length}/{MAX_TICKET_CONTENT_LENGTH}
+          </span>
+        </div>
       </form>
 
       {result?.kind === "classified" && (
